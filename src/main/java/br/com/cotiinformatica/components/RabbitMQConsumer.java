@@ -1,4 +1,6 @@
 package br.com.cotiinformatica.components;
+import br.com.cotiinformatica.entities.OutboxMessage;
+import br.com.cotiinformatica.repositories.OutboxMessageRepository;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.messaging.handler.annotation.Payload;
@@ -6,6 +8,9 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import br.com.cotiinformatica.events.PedidoCriado;
+
+import java.time.LocalDateTime;
+
 @Component
 public class RabbitMQConsumer {
 
@@ -16,8 +21,13 @@ public class RabbitMQConsumer {
     @RabbitListener(queues = "pedidos")
     public void receive(@Payload String payload) {
 
-        try {
 
+
+        var outboxMessage = new OutboxMessage();
+        outboxMessage.setDataHoraCriacao(LocalDateTime.now());
+        outboxMessage.setMensagem(payload);
+
+        try {
             //deserializar os dados lidos da API (json)
             var pedidoCriado = objectMapper.readValue(payload, PedidoCriado.class);
 
@@ -26,10 +36,14 @@ public class RabbitMQConsumer {
             var url = "http://faturamentosapi:8082/api/v1/faturamentos";
             var response = restTemplate.postForObject(url, pedidoCriado, String.class);
 
-            System.out.println(response);
+            outboxMessage.setTransmitido(response.getStatusCode().is2xxSuccessful());
         }
         catch(Exception e) {
+            outboxMessage.setTransmitido(false);
             e.printStackTrace();
+        }
+        finally {
+            outboxMessageRepository.save(outboxMessage);
         }
     }
 }
